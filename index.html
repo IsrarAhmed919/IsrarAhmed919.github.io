@@ -314,6 +314,7 @@ footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:2
     </a>
     <div class="navlinks">
       <a href="#work" class="hide-m">Vision</a>
+      <a href="#systems" class="hide-m">Systems</a>
       <a href="#llm" class="hide-m">LLMs</a>
       <a href="#approach" class="hide-m">Approach</a>
       <a href="#faq" class="hide-m">FAQ</a>
@@ -449,9 +450,41 @@ footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:2
       </div>
     </article>
 
+    <article class="case">
+      <div class="case-meta rv">
+        <span class="case-num">04 / Research</span>
+        <div class="tags"><span class="tag">weak supervision</span><span class="tag">partial cross-entropy</span><span class="tag">segmentation</span></div>
+      </div>
+      <div class="case-body">
+        <div class="rv d1">
+          <h3>Twenty labelled pixels beat a million</h3>
+          <p>Dense segmentation masks are the most expensive label in vision: one aerial image is <b>1,048,576</b> hand-labelled pixels. I implemented partial cross-entropy, simulated an annotator clicking a handful of points instead, and measured what actually drives performance across eight controlled runs on LoveDA.</p>
+          <ul class="notes">
+            <li><b>Choosing the points beats adding more of them.</b> Twenty class-balanced clicks scored higher than five hundred random ones: 25x fewer labels, better result. The budget saturates after about a hundred points.</li>
+            <li>Focal loss <b>only helps once sampling is balanced</b>. On uniform sampling it hurt. The two choices interact, so testing either one alone gives the wrong answer.</li>
+            <li>The mechanism is visible per class: <b>barren went from 0.079 IoU with full masks to 0.234</b> with twenty balanced points. Dense cross-entropy averages over pixels, so a rare class contributes almost nothing to the gradient.</li>
+            <li>It is a redistribution, not a free lunch, and the write-up says so: forest drops from 0.417 to 0.294. Single seed, so I report the trend rather than a confidence interval I did not measure.</li>
+          </ul>
+          <a class="link" href="https://github.com/IsrarAhmed919/point-supervised-segmentation">Code, tests and full scores <span>&#8599;</span></a>
+        </div>
+        <div class="panel rv d2">
+          <div class="panel-head"><span class="label">Test mIoU &middot; LoveDA val, 1,669 images</span><span class="mono" style="color:var(--faint)">same model, same epochs</span></div>
+          <div class="ba">
+            <div class="ba-cell"><span class="mono">FULL MASKS</span><b>0.348</b><span>1,048,576 px / image</span></div>
+            <div class="ba-cell after"><span class="mono" style="color:var(--signal)">20 POINTS</span><b>0.366</b><span>balanced + focal</span></div>
+          </div>
+          <div class="bars">
+            <div class="bar-row"><div class="bar-top"><span>500 points, uniform</span><span class="mono">0.342</span></div><div class="track"><div class="fill b" style="--w:93.5%"></div></div></div>
+            <div class="bar-row"><div class="bar-top"><span>20 points, class-balanced</span><span class="mono">0.352</span></div><div class="track"><div class="fill a" style="--w:96.2%"></div></div></div>
+          </div>
+          <div class="big-ratio"><b>0.002%</b><span>of the labels, and a<br>higher score than all of them</span></div>
+        </div>
+      </div>
+    </article>
+
     <article class="case" id="demo" hidden>
       <div class="case-meta rv">
-        <span class="case-num">04 / Demo</span>
+        <span class="case-num">05 / Demo</span>
         <div class="tags"><span class="tag">privacy</span><span class="tag">tracking</span></div>
       </div>
       <div class="rv d1">
@@ -459,6 +492,49 @@ footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:2
         <div class="demo">
           <video src="media/redaction-demo.mp4" poster="media/redaction-poster.jpg" controls muted playsinline preload="metadata"></video>
           <div class="demo-cap"><span>Public street footage. Objects are tracked across frames, so a detection missed for a few frames stays blurred.</span><span class="mono">recall measured on labelled clips</span></div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section id="systems">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label rv">Systems</span>
+      <h2 class="rv d1">Throughput is a number you <em>measure</em>, not a number you hope for.</h2>
+    </div>
+
+    <article class="case">
+      <div class="case-meta rv">
+        <span class="case-num">01 / Benchmark</span>
+        <div class="tags"><span class="tag">FastAPI</span><span class="tag">asyncpg</span><span class="tag">Redis</span><span class="tag">nginx</span></div>
+      </div>
+      <div class="case-body">
+        <div class="rv d1">
+          <h3>682 to 146,047 requests per second, on one laptop</h3>
+          <p>Some systems sit idle for months and then take every user they have ever had inside ten minutes: exam results, ticket sales, a tax deadline. The spike is never a surprise and the site falls over anyway. I built the same read-only API four times, changed one architectural idea per stage, and measured before moving on.</p>
+          <ul class="notes">
+            <li><b>The first 16.8x came from two lines</b>, an async handler and one connection pool. The old code opened a database connection inside every request, and Postgres forks a process for each one.</li>
+            <li>The <b>disappointing</b> stage was the useful one. Adding a cache gained only 1.7x, which proved the database had stopped being the bottleneck and Python had become it. That is what justified removing Python from the request path entirely.</li>
+            <li>The final stage renders every answer to a file ahead of time and serves it with <b>nginx sendfile</b>, so the kernel pushes bytes straight to the socket without them entering userspace. p99 of 1 ms.</li>
+            <li>Then the part that matters: turning throughput into hardware. Under a realistic burst the naive stack needs <b>152 servers</b> and the final one needs <b>1</b>. Knowable in an evening, before anything is provisioned.</li>
+          </ul>
+          <a class="link" href="https://github.com/IsrarAhmed919/fastapi-100k-rps">Code and reproducible harness <span>&#8599;</span></a>
+        </div>
+        <div class="panel rv d2">
+          <div class="panel-head"><span class="label">Requests per second</span><span class="mono" style="color:var(--faint)">same data, same query, same machine</span></div>
+          <div class="bars">
+            <div class="bar-row"><div class="bar-top"><span>Naive: connection per request</span><span class="mono">682</span></div><div class="track"><div class="fill b" style="--w:55%"></div></div></div>
+            <div class="bar-row"><div class="bar-top"><span>async + connection pool</span><span class="mono">11,485</span></div><div class="track"><div class="fill b" style="--w:79%"></div></div></div>
+            <div class="bar-row"><div class="bar-top"><span>+ Redis cache, single-flight</span><span class="mono">19,540</span></div><div class="track"><div class="fill a" style="--w:82%"></div></div></div>
+            <div class="bar-row"><div class="bar-top"><span>Pre-rendered, served by nginx</span><span class="mono">146,047</span></div><div class="track"><div class="fill a" style="--w:100%"></div></div></div>
+          </div>
+          <div class="ba">
+            <div class="ba-cell"><span class="mono">NAIVE STACK</span><b>152</b><span>servers for the burst</span></div>
+            <div class="ba-cell after"><span class="mono" style="color:var(--signal)">FINAL</span><b>1</b><span>server</span></div>
+          </div>
+          <div class="big-ratio"><b>214x</b><span>throughput, and 139 ms<br>down to 1 ms at p99</span></div>
         </div>
       </div>
     </article>
