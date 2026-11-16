@@ -71,6 +71,18 @@ input:focus,textarea:focus{outline:none;border-color:var(--signal-fill);box-shad
 input:user-invalid,textarea:user-invalid{border-color:var(--bad)}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 
+/* per-field validation */
+.fld{display:grid;gap:7px}
+.err,.tip{font-size:13px;line-height:1.5;margin:0;display:none}
+.err{color:var(--bad)}
+.tip{color:var(--muted)}
+.fld.bad .err{display:block}
+.fld.tipped .tip{display:block}
+.fld.bad input,.fld.bad textarea{border-color:var(--bad)}
+.fld.bad input:focus,.fld.bad textarea:focus{box-shadow:0 0 0 3px rgba(180,35,27,.14)}
+.tip button{background:none;border:0;padding:0;font:inherit;color:var(--signal);text-decoration:underline;cursor:pointer}
+.counter{font-family:var(--mono);font-size:11.5px;color:var(--faint);justify-self:end;margin:-2px 0 0}
+
 .btn{display:inline-flex;align-items:center;gap:10px;padding:14px 22px;border-radius:10px;font:500 15px var(--sans);
   text-decoration:none;border:1px solid transparent;cursor:pointer;transition:transform .2s var(--ease),background .2s,border-color .2s,filter .2s}
 .btn:active{transform:translateY(1px)}
@@ -134,24 +146,29 @@ footer .mono{color:var(--faint)}
   <div class="wrap">
     <form id="f" novalidate>
       <div class="row two">
-        <div>
+        <div class="fld" id="fld-name">
           <label for="name">Your name</label>
           <input id="name" name="name" type="text" autocomplete="name" required>
+          <p class="err" id="err-name"></p>
         </div>
-        <div>
-          <label for="email">Your email</label>
-          <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required>
+        <div class="fld" id="fld-email">
+          <label for="email">Your work email</label>
+          <input id="email" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false" required>
+          <p class="err" id="err-email"></p>
+          <p class="tip" id="tip-email"></p>
         </div>
       </div>
 
-      <div class="row">
+      <div class="row fld">
         <label for="company">Company <span>&middot; optional</span></label>
         <input id="company" name="company" type="text" autocomplete="organization">
       </div>
 
-      <div class="row">
+      <div class="row fld" id="fld-problem">
         <label for="problem">What you need built or fixed</label>
-        <textarea id="problem" name="problem" required placeholder="The system, the data, and where it currently falls over."></textarea>
+        <textarea id="problem" name="problem" required minlength="40" placeholder="The system, the data, and where it currently falls over."></textarea>
+        <p class="counter" id="count-problem">0 / 40 minimum</p>
+        <p class="err" id="err-problem"></p>
       </div>
 
       <div class="row">
@@ -238,6 +255,117 @@ if (!live) {
 
 function val(id){ return (document.getElementById(id).value || '').trim(); }
 
+/* ------------------------------------------------------------------
+   Strict enquiry checks.
+
+   These shape what comes through the form. They do NOT verify that an
+   address exists or that the sender owns it: nothing running in a
+   browser can. The only control that stops someone posting straight
+   to the endpoint with the public key is the domain restriction in
+   the Web3Forms dashboard.
+------------------------------------------------------------------ */
+
+/* requires a real domain with a dotted TLD, rejects a@b and a@b. */
+const EMAIL_RE = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}$/;
+
+/* throwaway inboxes. Privacy forwarders like duck.com, simplelogin
+   and anonaddy are deliberately NOT here: those are real people. */
+const BURNER = new Set(['mailinator.com','guerrillamail.com','guerrillamailblock.com','grr.la','sharklasers.com','spam4.me','10minutemail.com','10minutemail.net','tempmail.com','temp-mail.org','tempr.email','tmail.ws','throwawaymail.com','yopmail.com','trashmail.com','trashmail.de','getnada.com','dispostable.com','fakeinbox.com','maildrop.cc','mohmal.com','mytemp.email','emailondeck.com','spamgourmet.com','tempinbox.com','discard.email','einrot.com','pokemail.net','mailnesia.com','moakt.com','luxusmail.org','harakirimail.com','mintemail.com','tempmailo.com','emailfake.com','inboxkitten.com']);
+
+const PLACEHOLDER_DOMAIN = new Set(['example.com','example.org','example.net','test.com','test.org','domain.com','yourdomain.com','email.tld','mail.tld']);
+const PLACEHOLDER_LOCAL = new Set(['test','tests','testing','asdf','asdfasdf','qwerty','abc','abcd','aaa','aaaa','xxx','none','null','noreply','no-reply','donotreply','do-not-reply','user','someone','anonymous']);
+
+/* near misses on the big providers, offered as a correction not a block */
+const TYPO = {
+  'gmial.com':'gmail.com','gmai.com':'gmail.com','gmil.com':'gmail.com','gnail.com':'gmail.com',
+  'gmaill.com':'gmail.com','gamil.com':'gmail.com','gmail.co':'gmail.com','gmail.cm':'gmail.com',
+  'hotmai.com':'hotmail.com','hotmial.com':'hotmail.com','hotmil.com':'hotmail.com','hotmail.co':'hotmail.com',
+  'yaho.com':'yahoo.com','yahooo.com':'yahoo.com','yahoo.co':'yahoo.com',
+  'outlok.com':'outlook.com','outloook.com':'outlook.com','outlook.co':'outlook.com',
+  'iclod.com':'icloud.com','icloud.co':'icloud.com','protonmai.com':'protonmail.com'
+};
+
+const MIN_PROBLEM = 40;
+const MAX_LINKS = 2;
+
+function emailProblem(raw){
+  const e = raw.toLowerCase();
+  if (!e) return 'Your email is required, otherwise I cannot reply.';
+  if (e.length > 254) return 'That address is too long to be real.';
+  if (!EMAIL_RE.test(e)) return 'That is not a complete email address. It needs a domain with a dot, like name@company.com.';
+  const [local, domain] = e.split('@');
+  if (local.length > 64) return 'The part before the @ is too long to be real.';
+  if (e.includes('..')) return 'That address has two dots in a row.';
+  if (BURNER.has(domain)) return 'That is a disposable inbox. Use an address you will actually read my reply at.';
+  if (PLACEHOLDER_DOMAIN.has(domain)) return 'That domain is a placeholder, not a real one.';
+  if (PLACEHOLDER_LOCAL.has(local)) return 'That looks like a filler address rather than yours.';
+  return null;
+}
+
+function emailTypo(raw){
+  const d = raw.toLowerCase().split('@')[1];
+  return (d && TYPO[d]) ? TYPO[d] : null;
+}
+
+function problemProblem(text){
+  if (!text) return 'Tell me what you need built or fixed.';
+  if (text.length < MIN_PROBLEM) return 'A bit more detail, please. ' + MIN_PROBLEM + ' characters minimum, you have ' + text.length + '.';
+  const links = (text.match(/https?:\/\/|www\./gi) || []).length;
+  if (links > MAX_LINKS) return 'Too many links. Describe the problem in your own words and I will ask for links if I need them.';
+  if (!/[aeiou]/i.test(text)) return 'That does not read like a sentence.';
+  return null;
+}
+
+function mark(fldId, errId, msg){
+  const fld = document.getElementById(fldId);
+  if (!fld) return !msg;
+  fld.classList.toggle('bad', !!msg);
+  const el = document.getElementById(errId);
+  if (el) el.textContent = msg || '';
+  return !msg;
+}
+
+function checkEmail(){
+  const ok = mark('fld-email','err-email', emailProblem(val('email')));
+  const fix = ok ? emailTypo(val('email')) : null;
+  const fld = document.getElementById('fld-email');
+  const tip = document.getElementById('tip-email');
+  if (fix) {
+    tip.innerHTML = 'Did you mean <button type="button" id="fixdom">' + fix + '</button>?';
+    fld.classList.add('tipped');
+    document.getElementById('fixdom').addEventListener('click', () => {
+      const el = document.getElementById('email');
+      el.value = el.value.replace(/@.*$/, '@' + fix);
+      fld.classList.remove('tipped');
+      checkEmail(); syncGmail();
+    });
+  } else {
+    fld.classList.remove('tipped');
+  }
+  return ok;
+}
+
+function checkProblem(){ return mark('fld-problem','err-problem', problemProblem(val('problem'))); }
+function checkName(){
+  const n = val('name');
+  let msg = null;
+  if (!n) msg = 'Your name is required.';
+  else if (n.length < 2) msg = 'That is too short to be a name.';
+  else if (!/[A-Za-zÀ-ɏ؀-ۿ]/.test(n)) msg = 'That does not contain any letters.';
+  return mark('fld-name','err-name', msg);
+}
+
+/* live character counter, and validate on leaving a field */
+const counter = document.getElementById('count-problem');
+document.getElementById('problem').addEventListener('input', (e) => {
+  const n = e.target.value.trim().length;
+  counter.textContent = n + ' / ' + MIN_PROBLEM + ' minimum';
+  counter.style.color = n >= MIN_PROBLEM ? 'var(--ok)' : 'var(--faint)';
+});
+document.getElementById('email').addEventListener('blur', checkEmail);
+document.getElementById('name').addEventListener('blur', checkName);
+document.getElementById('problem').addEventListener('blur', checkProblem);
+
 function compose(){
   const lines = [];
   if (val('problem')) lines.push('What I need built or fixed:', val('problem'), '');
@@ -289,7 +417,7 @@ async function toClipboard(text, okMsg){
 }
 
 document.getElementById('copy').addEventListener('click', () => {
-  if (!val('problem')) { say('bad', 'Write what you need built or fixed first, then copy.'); return; }
+  if (!checkProblem()) { say('bad', 'Write what you need built or fixed first, then copy.'); return; }
   toClipboard('To: ' + TO + '\nSubject: ' + subject() + '\n\n' + compose(),
               'Message copied. Paste it into any mail client and send it to ' + TO + '.');
 });
@@ -308,9 +436,11 @@ f.addEventListener('submit', async (ev) => {
     return;
   }
 
-  if (!f.checkValidity()) {
-    f.reportValidity();
-    say('bad', 'Name, a valid email, and what you need built are all required.');
+  const okName = checkName(), okEmail = checkEmail(), okProblem = checkProblem();
+  if (!okName || !okEmail || !okProblem) {
+    const first = document.querySelector('.fld.bad input, .fld.bad textarea');
+    if (first) first.focus();
+    say('bad', 'Fix the highlighted fields and send again.');
     return;
   }
 
