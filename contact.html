@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Contact · Israr Ahmed · Machine Learning Engineer</title>
 <meta name="description" content="Send Israr Ahmed a project enquiry. Tell me the problem and the number you need to hit, and I will tell you how I would prove it.">
 <meta name="robots" content="index, follow">
@@ -305,7 +307,13 @@ function emailProblem(raw){
 
 function emailTypo(raw){
   const d = raw.toLowerCase().split('@')[1];
-  return (d && TYPO[d]) ? TYPO[d] : null;
+  /* hasOwnProperty, not TYPO[d]: a bare lookup walks the prototype
+     chain, so an address ending @constructor would hand back Object
+     instead of undefined. The regex blocks that today only because no
+     prototype key contains a dot, which is luck, not a guarantee. */
+  if (!d || !Object.prototype.hasOwnProperty.call(TYPO, d)) return null;
+  const fix = TYPO[d];
+  return (typeof fix === 'string') ? fix : null;
 }
 
 function problemProblem(text){
@@ -332,7 +340,15 @@ function checkEmail(){
   const fld = document.getElementById('fld-email');
   const tip = document.getElementById('tip-email');
   if (fix) {
-    tip.innerHTML = 'Did you mean <button type="button" id="fixdom">' + fix + '</button>?';
+    /* built as DOM nodes, not innerHTML: nothing derived from what a
+       visitor typed is ever parsed as markup on this page */
+    tip.textContent = 'Did you mean ';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.id = 'fixdom';
+    b.textContent = fix;
+    tip.appendChild(b);
+    tip.appendChild(document.createTextNode('?'));
     fld.classList.add('tipped');
     document.getElementById('fixdom').addEventListener('click', () => {
       const el = document.getElementById('email');
